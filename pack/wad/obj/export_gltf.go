@@ -2,6 +2,7 @@ package obj
 
 import (
 	"log"
+	"os"
 
 	"github.com/go-gl/mathgl/mgl32"
 
@@ -14,6 +15,9 @@ import (
 	"github.com/mogaika/god_of_war_browser/utils"
 	"github.com/mogaika/god_of_war_browser/utils/gltfutils"
 )
+
+// ExtraAnimations: animações de outro WAD para exportar junto (kratos-dmc3: finalizações ANM_MAI* dos inimigos)
+var ExtraAnimations []*file_anm.Animations
 
 type GLTFObjectExported struct {
 	JointNodes []uint32
@@ -99,7 +103,9 @@ func (tfoe *GLTFObjectExported) addAnimation(o *Object, doc *gltf.Document, gani
 						)
 					}
 
-					q = q.Normalize()
+					if os.Getenv("GOWB_RAWQUAT") == "" {
+						q = q.Normalize()
+					}
 					output = append(output, [4]float32{q.V[0], q.V[1], q.V[2], q.W})
 				}
 
@@ -209,6 +215,12 @@ func (o *Object) ExportGLTF(wrsrc *wad.WadNodeRsrc, gltfCacher *gltfutils.GLTFCa
 					log.Panicf("Failed to export animations: %v", err)
 				}
 			}
+		}
+	}
+
+	for _, a := range ExtraAnimations {
+		if err := tfoe.addAnimation(o, doc, a); err != nil {
+			log.Printf("Failed to export extra animations: %v", err)
 		}
 	}
 

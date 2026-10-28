@@ -1,6 +1,7 @@
 package anm
 
 import (
+	"fmt"
 	"encoding/binary"
 	"math"
 	"os"
@@ -118,82 +119,7 @@ func NewFromData(data []byte) (*Animations, error) {
 		g.Offset = u32(rawGroupsPointers, uint32(i*4))
 		rawGroup := data[g.Offset:]
 
-		g.Name = utils.BytesToString(rawGroup[0x14:0x2c])
-		g.IsExternal = u32(rawGroup, 8)&0x20000 != 0
-
-		_l.Printf("++++++++++++++ GROUP '%s' +++++++++++++++++++++++++++++++++++++++++++++++++++++",
-			g.Name)
-
-		if !g.IsExternal {
-			g.Acts = make([]AnimAct, u32(rawGroup, 0xc))
-			for j := range g.Acts {
-				act := &g.Acts[j]
-				act.Offset = u32(rawGroup, uint32(0x30+j*4))
-
-				rawAct := rawGroup[act.Offset:]
-
-				act.UnkFloat0x4 = math.Float32frombits(u32(rawAct, 0x4))
-				act.UnkFloat0xc = math.Float32frombits(u32(rawAct, 0xc))
-				act.Duration = math.Float32frombits(u32(rawAct, 0x1c))
-				act.Name = utils.BytesToString(rawAct[0x24:0x3c])
-
-				_l.Printf("======= ACT '%s'  (datatypes cnt: %d   f0x4: %f   f0xc: %f    duration: %f) ======================================================",
-					act.Name, len(a.DataTypes), act.UnkFloat0x4, act.UnkFloat0xc, act.Duration)
-				_l.Printf("---- SDUMP: %s", utils.SDump(rawAct[:0x64]))
-
-				act.StateDescrs = make([]AnimActStateDescr, len(a.DataTypes))
-				for iStateDescr := range act.StateDescrs {
-					sd := &act.StateDescrs[iStateDescr]
-					rawActStateDescr := rawAct[0x64+iStateDescr*0x14:]
-
-					sd.Unk0 = u16(rawActStateDescr, 0)
-					sd.CountOfSomething = u16(rawActStateDescr, 2)
-					sd.OffsetToData = u32(rawActStateDescr, 8)
-					sd.FrameTime = math.Float32frombits(u32(rawActStateDescr, 0xc))
-
-					_l.Printf("   . . . . . . . . . . STATE '%d'  FrameTime: %f  unk0: 0x%x  unk4: 0x%x . . . . . . . . . . . . . . . . . . . . . . . . . . . ",
-						iStateDescr, sd.FrameTime, sd.Unk0, u32(rawActStateDescr, 4))
-
-					//log.Println(iStateDescr, a.DataTypes, a.DataTypes[iStateDescr].TypeId)
-					switch a.DataTypes[iStateDescr].TypeId {
-					case DATATYPE_TEXUREPOS:
-						data := make([]*AnimState8Texturepos, sd.CountOfSomething)
-						for i := 0; i < int(sd.CountOfSomething); i++ {
-							data[i] = AnimState8TextureposFromBuf(&a.DataTypes[iStateDescr], rawAct[sd.OffsetToData:], i)
-						}
-						sd.Data = data
-					case DATATYPE_SKINNING:
-						_l.Printf("ROTATION ANIMATIONS COUNT: %v", int(u16(rawAct, 0x8e)))
-						_l.Printf("SIZE ANIMATIONS COUNT: %v", int(u16(rawAct, 0x8e)))
-						_l.Printf("POSITION ANIMATIONS COUNT: %v", int(u16(rawAct, 0x7a)))
-						_l.Printf("descr: %+#v", a.DataTypes[iStateDescr])
-						_l.Printf("SUBELEMENT UPDATES OR OFFETS OR STATES COUNT(0xA2): %v", int(u16(rawAct, 0xa2)))
-
-						data := make([]*AnimState0Skinning, sd.CountOfSomething)
-						for i := 0; i < int(sd.CountOfSomething); i++ {
-							skinAnim := AnimState0SkinningFromBuf(rawAct[sd.OffsetToData:], i, _l)
-							skinAnim.ParseRotations(rawAct[sd.OffsetToData:], i, _l)
-							data[i] = skinAnim
-						}
-						for i := 0; i < int(u16(rawAct, 0x7a)); i++ {
-							skinAnim := AnimState0SkinningFromBuf(rawAct[sd.OffsetToData:], i, _l)
-							skinAnim.ParsePositions(rawAct[sd.OffsetToData:], i, _l, rawAct)
-							data = append(data, skinAnim)
-						}
-						sd.Data = data
-					case DATATYPE_TEXTURESHEET:
-						buf := rawAct[sd.OffsetToData:]
-						data := make([]uint32, u16(buf, 4))
-						dataBuf := buf[u16(buf, 0xa):]
-						for i := range data {
-							data[i] = u32(dataBuf, uint32(i*4))
-						}
-						sd.Data = data
-					}
-
-				}
-			}
-		}
+		a.parseGroup(g, rawGroup, _l)
 	}
 
 	return a, nil
@@ -207,4 +133,101 @@ func init() {
 	wad.SetHandler(config.GOW1, ANIMATIONS_MAGIC, func(wrsrc *wad.WadNodeRsrc) (wad.File, error) {
 		return NewFromData(wrsrc.Tag.Data)
 	})
+}
+
+
+func (a *Animations) parseGroup(g *AnimGroup, rawGroup []byte, _l *utils.Logger) {
+	g.Name = utils.BytesToString(rawGroup[0x14:0x2c])
+	g.IsExternal = u32(rawGroup, 8)&0x20000 != 0
+
+	_l.Printf("++++++++++++++ GROUP '%s' +++++++++++++++++++++++++++++++++++++++++++++++++++++",
+		g.Name)
+
+	if !g.IsExternal {
+		g.Acts = make([]AnimAct, u32(rawGroup, 0xc))
+		for j := range g.Acts {
+			act := &g.Acts[j]
+			act.Offset = u32(rawGroup, uint32(0x30+j*4))
+
+			rawAct := rawGroup[act.Offset:]
+
+			act.UnkFloat0x4 = math.Float32frombits(u32(rawAct, 0x4))
+			act.UnkFloat0xc = math.Float32frombits(u32(rawAct, 0xc))
+			act.Duration = math.Float32frombits(u32(rawAct, 0x1c))
+			act.Name = utils.BytesToString(rawAct[0x24:0x3c])
+
+			_l.Printf("======= ACT '%s'  (datatypes cnt: %d   f0x4: %f   f0xc: %f    duration: %f) ======================================================",
+				act.Name, len(a.DataTypes), act.UnkFloat0x4, act.UnkFloat0xc, act.Duration)
+			_l.Printf("---- SDUMP: %s", utils.SDump(rawAct[:0x64]))
+
+			act.StateDescrs = make([]AnimActStateDescr, len(a.DataTypes))
+			for iStateDescr := range act.StateDescrs {
+				sd := &act.StateDescrs[iStateDescr]
+				rawActStateDescr := rawAct[0x64+iStateDescr*0x14:]
+
+				sd.Unk0 = u16(rawActStateDescr, 0)
+				sd.CountOfSomething = u16(rawActStateDescr, 2)
+				sd.OffsetToData = u32(rawActStateDescr, 8)
+				sd.FrameTime = math.Float32frombits(u32(rawActStateDescr, 0xc))
+
+				_l.Printf("   . . . . . . . . . . STATE '%d'  FrameTime: %f  unk0: 0x%x  unk4: 0x%x . . . . . . . . . . . . . . . . . . . . . . . . . . . ",
+					iStateDescr, sd.FrameTime, sd.Unk0, u32(rawActStateDescr, 4))
+
+				//log.Println(iStateDescr, a.DataTypes, a.DataTypes[iStateDescr].TypeId)
+				switch a.DataTypes[iStateDescr].TypeId {
+				case DATATYPE_TEXUREPOS:
+					data := make([]*AnimState8Texturepos, sd.CountOfSomething)
+					for i := 0; i < int(sd.CountOfSomething); i++ {
+						data[i] = AnimState8TextureposFromBuf(&a.DataTypes[iStateDescr], rawAct[sd.OffsetToData:], i)
+					}
+					sd.Data = data
+				case DATATYPE_SKINNING:
+					_l.Printf("ROTATION ANIMATIONS COUNT: %v", int(u16(rawAct, 0x8e)))
+					_l.Printf("SIZE ANIMATIONS COUNT: %v", int(u16(rawAct, 0x8e)))
+					_l.Printf("POSITION ANIMATIONS COUNT: %v", int(u16(rawAct, 0x7a)))
+					_l.Printf("descr: %+#v", a.DataTypes[iStateDescr])
+					_l.Printf("SUBELEMENT UPDATES OR OFFETS OR STATES COUNT(0xA2): %v", int(u16(rawAct, 0xa2)))
+
+					data := make([]*AnimState0Skinning, sd.CountOfSomething)
+					for i := 0; i < int(sd.CountOfSomething); i++ {
+						skinAnim := AnimState0SkinningFromBuf(rawAct[sd.OffsetToData:], i, _l)
+						skinAnim.ParseRotations(rawAct[sd.OffsetToData:], i, _l)
+						data[i] = skinAnim
+					}
+					for i := 0; i < int(u16(rawAct, 0x7a)); i++ {
+						skinAnim := AnimState0SkinningFromBuf(rawAct[sd.OffsetToData:], i, _l)
+						skinAnim.ParsePositions(rawAct[sd.OffsetToData:], i, _l, rawAct)
+						data = append(data, skinAnim)
+					}
+					sd.Data = data
+				case DATATYPE_TEXTURESHEET:
+					buf := rawAct[sd.OffsetToData:]
+					data := make([]uint32, u16(buf, 4))
+					dataBuf := buf[u16(buf, 0xa):]
+					for i := range data {
+						data[i] = u32(dataBuf, uint32(i*4))
+					}
+					sd.Data = data
+				}
+
+			}
+		}
+	}
+}
+
+// LoadExternalGroup (kratos-dmc3): os grupos externos do ANM do herói (finalizações "mai*") ficam nos WADs dos
+// inimigos (ANM_MAI*, 8 bytes de cabeçalho 0x10003 e o grupo); parseia e deixa só esse grupo
+func (a *Animations) LoadExternalGroup(blob []byte) error {
+	raw := blob[8:]
+	name := utils.BytesToString(raw[0x14:0x2c])
+	for i := range a.Groups {
+		g := &a.Groups[i]
+		if g.Name == name && g.IsExternal {
+			a.parseGroup(g, raw, nil)
+			g.IsExternal = false
+			a.Groups = []AnimGroup{*g}
+			return nil
+		}
+	}
+	return fmt.Errorf("grupo externo %q não está no ANM do herói", name)
 }
